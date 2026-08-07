@@ -1,0 +1,24 @@
+{
+  "name": "agent-os",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "pnpm start",
+    "start": "tsx watch --include .env src/index.ts",
+    "start:once": "tsx src/index.ts",
+    "build": "tsc"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "packageManager": "pnpm@10.32.1",
+  "dependencies": {
+    "dotenv": "^17.4.2",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.2",
+    "tsx": "^4.23.10",
+    "typescript": "^7.0.2"
+  }
+}

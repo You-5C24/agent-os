@@ -5,7 +5,12 @@
 
 ## 运行
 
-pnpm dev（tsx watch）/ pnpm start / pnpm build
+pnpm start（watch 模式）/ pnpm start:once（单次启动）
+
+## 模块地图（随开发生长，只列已存在的）
+
+- src/index.ts — 入口：启动 banner + 环境自检
+- src/probe-cli.ts — AI CLI 事件流解析器（stdin 读 headless JSON 行，打印时间线）
 
 ## 约定
 

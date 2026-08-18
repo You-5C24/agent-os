@@ -1,6 +1,6 @@
 # agent-os
 
-把飞书变成 AI 编程 CLI（Claude Code / Codex）的指挥台。
+把飞书变成 AI 编程 CLI（Claude Code / Codex / Cursor）的指挥台。
 一个话题 = 一个任务；bot 之间可互相 @ 协作；cron 定时巡检。
 
 ## 运行

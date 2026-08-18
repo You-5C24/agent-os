@@ -3,6 +3,7 @@
  * 用法：
  *   claude -p "..." --output-format stream-json --verbose | pnpm probe:cli
  *   codex exec --json "..." | pnpm probe:cli
+ *   agent -p "..." --output-format stream-json | pnpm probe:cli
  */
 import { createInterface } from 'node:readline';
 
@@ -19,8 +20,10 @@ rl.on('line', (line) => {
     return; // 非 JSON 行（日志噪音）直接跳过
   }
 
+  console.log(ev.type);
+
   switch (ev.type) {
-    // ── Claude Code ──
+    // ── Claude Code（Cursor 复用 system / assistant 文本 / result）──
     case 'system':
       if (ev.subtype === 'init')
         console.log(
@@ -42,6 +45,14 @@ rl.on('line', (line) => {
         }`
       );
       console.log(`${stamp()} 最终回答: ${ev.result}`);
+      break;
+
+    // ── Cursor（独有；system/assistant/result 见上方）──
+    case 'tool_call':
+      if (ev.subtype === 'started') {
+        const name = Object.keys(ev.tool_call ?? {})[0] ?? 'unknown';
+        console.log(`${stamp()} 调用工具: ${name}`);
+      }
       break;
 
     // ── Codex ──

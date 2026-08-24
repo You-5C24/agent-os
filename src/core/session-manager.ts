@@ -84,7 +84,10 @@ export class SessionManager {
     );
   }
 
-  async resolve(message: MessageAddress): Promise<ResolvedSession> {
+  async resolve(
+    message: MessageAddress,
+    cliId: CliId = 'claude'
+  ): Promise<ResolvedSession> {
     const threadId = topicIdOf(message);
     const key = sessionKey(message.chatId, threadId);
     const existing = this.sessions.get(key);
@@ -95,7 +98,7 @@ export class SessionManager {
       id: this.createId(),
       threadId,
       chatId: message.chatId,
-      cliId: 'claude',
+      cliId,
       status: 'creating',
       createdAt: now,
       updatedAt: now,

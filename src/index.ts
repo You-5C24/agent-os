@@ -10,6 +10,7 @@ import { resolveMentions, extractResourceKeys } from './im/message-parser.js';
 import { parseCommand } from './core/command-parser.js';
 import { SessionManager, type Session } from './core/session-manager.js';
 import { JsonSessionStore } from './core/session-store.js';
+import { TaskProgressTracker } from './core/task-progress.js';
 import { ClaudeAdapter } from './cli/claude-adapter.js';
 import { runCli } from './cli/runner.js';
 
@@ -34,7 +35,8 @@ const activeRuns = new Map<string, AbortController>();
 function executeCli(
   prompt: string,
   sessionId: string | undefined,
-  signal: AbortSignal
+  signal: AbortSignal,
+  onEvent: Parameters<typeof runCli>[0]['onEvent']
 ) {
   return runCli({
     adapter: cliAdapter,
@@ -42,6 +44,7 @@ function executeCli(
     cwd: cliWorkdir,
     sessionId,
     signal,
+    onEvent,
   });
 }
 
@@ -193,8 +196,29 @@ startBot({
     }
     console.log(`[卡片] 已发送 message_id=${cardId} inThread=${hasThread}`);
 
+    const progress = new TaskProgressTracker();
+
     // 让事件回调尽快返回，Claude Code 在后台继续执行。
-    void executeCli(resolved, session.cliSessionId, run.signal)
+    void executeCli(resolved, session.cliSessionId, run.signal, (event) => {
+      if (
+        event.type !== 'tool_start' &&
+        event.type !== 'tool_end' &&
+        event.type !== 'context'
+      )
+        return;
+
+      const snapshot = progress.accept(event);
+      const currentDetail = snapshot.currentDetail
+        ? ` detail=${snapshot.currentDetail}`
+        : '';
+      const context =
+        snapshot.contextUsedTokens === undefined
+          ? ''
+          : ` context=${snapshot.contextUsedTokens}`;
+      console.log(
+        `[进度] ${snapshot.current}${currentDetail} tools=${snapshot.completedCount}/${snapshot.toolCount}${context}`
+      );
+    })
       .then(async (result) => {
         if (result.sessionId && result.sessionId !== session.cliSessionId) {
           await sessions.setCliSessionId(session.id, result.sessionId);

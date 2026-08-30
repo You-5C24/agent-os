@@ -7,7 +7,7 @@ export interface SlashCommand {
 }
 
 const COMMAND_RE = /^(?:@.+\s+)?\/(close|status|help)\s*$/;
-const CLI_REQUEST_RE = /^(?:@\S+\s+)?\/(claude|codex)(?:\s+([\s\S]*))?$/;
+const CLI_REQUEST_RE = /^(?:@\S+\s+)?\/(claude|codex|cursor)(?:\s+([\s\S]*))?$/;
 
 export function parseCommand(text: string): SlashCommand | undefined {
   const match = COMMAND_RE.exec(text.trim());

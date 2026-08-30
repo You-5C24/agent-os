@@ -1,6 +1,6 @@
 # agent-os
 
-飞书是操作界面，Claude Code / Codex 是执行引擎；本项目实现中间的个人生产系统指挥层。一个话题 = 一个 CLI 会话；bot 之间可以互相 @ 协作；cron 定时巡检；本地 Dashboard 管理任务。
+飞书是操作界面，Claude Code / Cursor 是执行引擎（Codex 仅作备用）；本项目实现中间的个人生产系统指挥层。一个话题 = 一个 CLI 会话；bot 之间可以互相 @ 协作；cron 定时巡检；本地 Dashboard 管理任务。
 
 ## 运行
 

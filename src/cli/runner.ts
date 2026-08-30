@@ -44,7 +44,7 @@ export function runCli(options: RunCliOptions): Promise<CliRunResult> {
       if (useStdin) child.stdin.end(prompt, 'utf8');
       else child.stdin.end();
     }
-    // spawn 的 signal 选项只杀直接子进程（cmd 外壳），Windows 下 claude.exe/codex.exe 会变孤儿；
+    // spawn 的 signal 选项只杀直接子进程（cmd 外壳），Windows 下 claude.exe/cursor.exe/codex.exe 会变孤儿；
     // 额外监听 abort 用 killCli 连进程树一起清。
     signal?.addEventListener('abort', () => killCli(child), { once: true });
     const lines = createInterface({ input: child.stdout });

@@ -1,4 +1,5 @@
-export type CliId = 'claude' | 'codex' | 'cursor';
+export const CLI_IDS = ['claude', 'cursor', 'codex'] as const;
+export type CliId = (typeof CLI_IDS)[number];
 
 export type CliPromptInput = 'argument' | 'stdin';
 

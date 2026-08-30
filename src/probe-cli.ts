@@ -2,6 +2,7 @@
  * AI CLI 事件流解析器：从 stdin 读 headless 模式的 JSON 行，打印事件时间线。
  * 用法：
  *   claude -p "..." --output-format stream-json --verbose | pnpm probe:cli
+ *   agent -p "..." --force --trust --output-format stream-json | pnpm probe:cli
  *   codex exec --json "..." | pnpm probe:cli
  */
 import { createInterface } from 'node:readline';

@@ -149,6 +149,8 @@ function outputArgs(prompt: string, promptInput: CliPromptInput): string[] {
     // headless 下必须 --force 才会真正改文件；--trust 跳过工作区确认。
     '--force',
     '--trust',
+    '--model',
+    'cursor-grok-4.6-high-fast',
     '--output-format',
     'stream-json',
     ...(promptInput === 'argument' ? [prompt] : []),

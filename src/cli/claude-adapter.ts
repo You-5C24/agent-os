@@ -127,6 +127,7 @@ function parseStats(event: ClaudeEvent): CliRunStats | undefined {
 
 function outputArgs(prompt: string, promptInput: CliPromptInput): string[] {
   return [
+    '--dangerously-skip-permissions',
     '-p',
     ...(promptInput === 'argument' ? [prompt] : []),
     '--output-format',

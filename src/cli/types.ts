@@ -1,4 +1,5 @@
 export const CLI_IDS = ['claude', 'cursor', 'codex'] as const;
+
 export type CliId = (typeof CLI_IDS)[number];
 
 export type CliPromptInput = 'argument' | 'stdin';
@@ -10,6 +11,20 @@ export function promptInputForPlatform(
   return platform === 'win32' ? 'stdin' : 'argument';
 }
 
+export type CliCompactPlan =
+  | {
+      protocol: 'claude-stream-json';
+      command: string;
+      args: string[];
+      prompt: string;
+    }
+  | {
+      protocol: 'codex-app-server';
+      command: string;
+      args: string[];
+      sessionId: string;
+    };
+
 export interface CliRunStats {
   durationMs?: number;
   turns?: number;
@@ -20,6 +35,12 @@ export interface CliRunStats {
   cacheCreationTokens?: number;
   contextUsedTokens?: number;
   contextWindowTokens?: number;
+}
+
+export interface CliSessionSummary {
+  id: string;
+  title: string;
+  updatedAt: string;
 }
 
 export type CliEvent =
@@ -46,6 +67,7 @@ export interface CliAdapter {
     sessionId: string,
     promptInput: CliPromptInput
   ): string[];
+  buildCompactPlan(sessionId: string, instructions?: string): CliCompactPlan;
   parseEvents(line: string): CliEvent[];
 }
 

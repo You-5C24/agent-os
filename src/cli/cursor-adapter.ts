@@ -1,3 +1,4 @@
+import { promptInputForPlatform } from './types.js';
 import type {
   CliAdapter,
   CliPromptInput,
@@ -169,6 +170,23 @@ export class CursorAdapter implements CliAdapter {
     promptInput: CliPromptInput
   ): string[] {
     return ['--resume', sessionId, ...outputArgs(prompt, promptInput)];
+  }
+
+  buildCompactPlan(sessionId: string, instructions?: string) {
+    const command = instructions?.trim()
+      ? `/summarize ${instructions.trim()}`
+      : '/summarize';
+    return {
+      protocol: 'claude-stream-json' as const,
+      command: this.command,
+      // Cursor 官方整理命令是 /summarize（/compact 仍是别名）；stdin 模式要把文本写入子进程。
+      prompt: command,
+      args: this.buildResumeArgs(
+        command,
+        sessionId,
+        promptInputForPlatform(process.platform)
+      ),
+    };
   }
 
   parseEvents(line: string): CliEvent[] {

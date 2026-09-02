@@ -146,8 +146,8 @@ function parseStats(event: CursorEvent): CliRunStats | undefined {
 function outputArgs(prompt: string, promptInput: CliPromptInput): string[] {
   return [
     '-p',
-    // headless 下必须 --force 才会真正改文件；--trust 跳过工作区确认。
-    '--force',
+    // --yolo 等同 --force（Run Everything），新会话和恢复会话都走无人值守。
+    '--yolo',
     '--trust',
     '--model',
     'cursor-grok-4.6-high-fast',

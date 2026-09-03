@@ -1,6 +1,6 @@
 /**
  * Agent OS 入口。
- * 当前阶段：飞书消息驱动 Claude Code / Codex 完成任务。
+ * 当前阶段：飞书消息驱动 Claude Code / Cursor 完成任务（Codex 仅作备用）。
  */
 import 'dotenv/config';
 import { randomUUID } from 'node:crypto';
@@ -56,7 +56,7 @@ await Promise.all(
 );
 for (const missing of await teamRegistry.findMissingSkills()) {
   console.warn(
-    `[Skill] bot=${missing.botId} 找不到 $${missing.skill}，请安装到当前工作目录的 .agents/skills 或 .claude/skills`
+    `[Skill] bot=${missing.botId} 找不到 $${missing.skill}，请安装到当前工作目录的 .agents/skills、.claude/skills 或 .cursor/skills`
   );
 }
 const defaultWorkspaces = Object.fromEntries(

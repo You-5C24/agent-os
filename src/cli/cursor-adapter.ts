@@ -5,6 +5,7 @@ import type {
   CliEvent,
   CliRunStats,
 } from './types.js';
+import { CLARIFICATION_TOOL_NAME, cursorAppToolArgs } from './app-tools.js';
 
 interface CursorEvent {
   type?: unknown;
@@ -31,6 +32,7 @@ const TOOL_INFO: Record<
   lsToolCall: { toolName: 'Glob', label: '列出文件' },
   globToolCall: { toolName: 'Glob', label: '查找文件' },
   todoToolCall: { toolName: 'Todo', label: '更新待办' },
+  mcpToolCall: { toolName: 'MCP', label: '调用外部工具' },
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -98,6 +100,9 @@ function toolDetail(kind: string, args: unknown): string | undefined {
       shortText(args.pattern)
     );
   }
+  if (kind === 'mcpToolCall') {
+    return shortText(args.toolName) ?? shortText(args.name);
+  }
   return (
     shortPath(args.path) ??
     shortText(args.command) ??
@@ -143,6 +148,50 @@ function parseStats(event: CursorEvent): CliRunStats | undefined {
     : undefined;
 }
 
+function parseJsonValue(value: unknown): unknown {
+  if (typeof value !== 'string') return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return undefined;
+  }
+}
+
+function isClarificationName(value: unknown): boolean {
+  return (
+    typeof value === 'string' &&
+    (value === CLARIFICATION_TOOL_NAME ||
+      value.endsWith(`__${CLARIFICATION_TOOL_NAME}`) ||
+      value.endsWith(`-${CLARIFICATION_TOOL_NAME}`))
+  );
+}
+
+function clarificationInput(toolCall: Record<string, unknown>): unknown | undefined {
+  const matched = toolKind(toolCall);
+  if (!matched) return undefined;
+  const rawArgs = isRecord(matched.payload.args)
+    ? matched.payload.args
+    : parseJsonValue(matched.payload.arguments);
+  const names = [
+    matched.kind,
+    isRecord(rawArgs) ? rawArgs.name : undefined,
+    isRecord(rawArgs) ? rawArgs.toolName : undefined,
+  ];
+  if (!names.some(isClarificationName)) return undefined;
+  if (isRecord(rawArgs) && isRecord(rawArgs.args)) return rawArgs.args;
+  if (isRecord(rawArgs) && Array.isArray(rawArgs.questions)) {
+    const {
+      name: _name,
+      toolName: _toolName,
+      toolCallId: _toolCallId,
+      providerIdentifier: _provider,
+      ...rest
+    } = rawArgs;
+    return rest;
+  }
+  return rawArgs;
+}
+
 function outputArgs(prompt: string, promptInput: CliPromptInput): string[] {
   return [
     '-p',
@@ -153,6 +202,7 @@ function outputArgs(prompt: string, promptInput: CliPromptInput): string[] {
     'cursor-grok-4.6-high-fast',
     '--output-format',
     'stream-json',
+    ...cursorAppToolArgs(),
     ...(promptInput === 'argument' ? [prompt] : []),
   ];
 }
@@ -209,13 +259,23 @@ export class CursorAdapter implements CliAdapter {
       const tool = toolInfo(event.tool_call);
       if (!tool) return [];
       if (event.subtype === 'started') {
-        return [
+        const events: CliEvent[] = [
           {
             type: 'tool_start',
             toolUseId: event.call_id,
             ...tool,
           },
         ];
+        const input = clarificationInput(event.tool_call);
+        if (input !== undefined) {
+          events.push({
+            type: 'tool_call',
+            toolUseId: event.call_id,
+            toolName: CLARIFICATION_TOOL_NAME,
+            input,
+          });
+        }
+        return events;
       }
       if (event.subtype === 'completed') {
         const matched = toolKind(event.tool_call);

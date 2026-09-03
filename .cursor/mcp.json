@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "agent_os": {
+      "command": "/Users/5c24/.nvm/versions/node/v24.14.0/bin/node",
+      "args": [
+        "/Users/5c24/Documents/worksapce/agent-os/node_modules/tsx/dist/cli.mjs",
+        "/Users/5c24/Documents/worksapce/agent-os/src/mcp/clarification-server.ts"
+      ]
+    }
+  }
+}

@@ -67,7 +67,8 @@ export async function handleSessionCommand(options: {
         '/close 关闭当前会话',
         '/help 查看命令',
         '/claude <任务> 新话题使用 Claude Code',
-        '/codex <任务> 新话题使用 Codex',
+        '/cursor <任务> 新话题使用 Cursor',
+        '/codex <任务> 新话题使用 Codex（备用）',
       ].join('\n'),
       hasThread
     );

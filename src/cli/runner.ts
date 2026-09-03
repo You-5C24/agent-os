@@ -2,6 +2,7 @@ import { killCli, spawnCli } from './spawn-cli.js';
 import { promptInputForPlatform } from './types.js';
 import { createInterface } from 'node:readline';
 import type { CliAdapter, CliEvent, CliRunResult } from './types.js';
+import { ensureCursorAppTools } from './app-tools.js';
 
 const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
 
@@ -28,6 +29,7 @@ export function runCli(options: RunCliOptions): Promise<CliRunResult> {
   // Windows 下 prompt 走 stdin（规避 cmd 转义/乱码），其他平台直接作为命令行参数。
   const promptInput = promptInputForPlatform(process.platform);
   const useStdin = promptInput === 'stdin';
+  if (adapter.id === 'cursor') ensureCursorAppTools(cwd);
   const args = sessionId
     ? adapter.buildResumeArgs(prompt, sessionId, promptInput)
     : adapter.buildArgs(prompt, promptInput);
@@ -51,6 +53,10 @@ export function runCli(options: RunCliOptions): Promise<CliRunResult> {
     let observedSessionId = sessionId;
     let observedAnswer: string | undefined;
     let observedStats: CliRunResult['stats'];
+    const observedToolCalls = new Map<
+      string,
+      NonNullable<CliRunResult['toolCalls']>[number]
+    >();
     let finalResult: CliRunResult | undefined;
     let resultError: Error | undefined;
     let stderr = '';
@@ -78,6 +84,14 @@ export function runCli(options: RunCliOptions): Promise<CliRunResult> {
         }
         if (event.type === 'error') {
           resultError = new Error(event.message);
+          continue;
+        }
+        if (event.type === 'tool_call') {
+          observedToolCalls.set(event.toolUseId, event);
+          continue;
+        }
+        if (event.type === 'tool_end' && event.failed) {
+          observedToolCalls.delete(event.toolUseId);
           continue;
         }
         if (event.type === 'result') {
@@ -125,6 +139,13 @@ export function runCli(options: RunCliOptions): Promise<CliRunResult> {
       }
       if (!finalResult) {
         return fail(new Error(`${adapter.displayName} 没有返回最终结果`));
+      }
+      if (observedToolCalls.size > 0) {
+        finalResult.toolCalls = [...observedToolCalls.values()].map((call) => ({
+          toolUseId: call.toolUseId,
+          toolName: call.toolName,
+          input: call.input,
+        }));
       }
       settled = true;
       finish();

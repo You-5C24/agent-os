@@ -5,7 +5,11 @@ import type {
   CliEvent,
   CliRunStats,
 } from './types.js';
-import { CLARIFICATION_TOOL_NAME, cursorAppToolArgs } from './app-tools.js';
+import {
+  CLARIFICATION_TOOL_NAME,
+  PRODUCT_SPEC_TOOL_NAME,
+  cursorAppToolArgs,
+} from './app-tools.js';
 
 interface CursorEvent {
   type?: unknown;
@@ -157,16 +161,19 @@ function parseJsonValue(value: unknown): unknown {
   }
 }
 
-function isClarificationName(value: unknown): boolean {
+function isAppToolName(value: unknown, toolName: string): boolean {
   return (
     typeof value === 'string' &&
-    (value === CLARIFICATION_TOOL_NAME ||
-      value.endsWith(`__${CLARIFICATION_TOOL_NAME}`) ||
-      value.endsWith(`-${CLARIFICATION_TOOL_NAME}`))
+    (value === toolName ||
+      value.endsWith(`__${toolName}`) ||
+      value.endsWith(`-${toolName}`))
   );
 }
 
-function clarificationInput(toolCall: Record<string, unknown>): unknown | undefined {
+function appToolInput(
+  toolCall: Record<string, unknown>,
+  toolName: string
+): unknown | undefined {
   const matched = toolKind(toolCall);
   if (!matched) return undefined;
   const rawArgs = isRecord(matched.payload.args)
@@ -177,7 +184,7 @@ function clarificationInput(toolCall: Record<string, unknown>): unknown | undefi
     isRecord(rawArgs) ? rawArgs.name : undefined,
     isRecord(rawArgs) ? rawArgs.toolName : undefined,
   ];
-  if (!names.some(isClarificationName)) return undefined;
+  if (!names.some((name) => isAppToolName(name, toolName))) return undefined;
   if (isRecord(rawArgs) && isRecord(rawArgs.args)) return rawArgs.args;
   if (isRecord(rawArgs) && Array.isArray(rawArgs.questions)) {
     const {
@@ -266,13 +273,28 @@ export class CursorAdapter implements CliAdapter {
             ...tool,
           },
         ];
-        const input = clarificationInput(event.tool_call);
-        if (input !== undefined) {
+        const clarification = appToolInput(
+          event.tool_call,
+          CLARIFICATION_TOOL_NAME
+        );
+        if (clarification !== undefined) {
           events.push({
             type: 'tool_call',
             toolUseId: event.call_id,
             toolName: CLARIFICATION_TOOL_NAME,
-            input,
+            input: clarification,
+          });
+        }
+        const productSpec = appToolInput(
+          event.tool_call,
+          PRODUCT_SPEC_TOOL_NAME
+        );
+        if (productSpec !== undefined) {
+          events.push({
+            type: 'tool_call',
+            toolUseId: event.call_id,
+            toolName: PRODUCT_SPEC_TOOL_NAME,
+            input: productSpec,
           });
         }
         return events;

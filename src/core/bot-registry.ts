@@ -176,9 +176,8 @@ export function buildBotPrompt(
       ? [
           '项目 Skill 加载规则（优先级不可颠倒）：',
           '- 对配置中声明的每个 Skill，先读取当前工作区 `.agents/skills/<skill>/SKILL.md`。',
-          '- 上述路径不存在时，再读取当前工作区 `.claude/skills/<skill>/SKILL.md`。',
-          '- 上述路径仍不存在时，再读取当前工作区 `.cursor/skills/<skill>/SKILL.md`。',
-          '- 只有三个工作区路径都不存在时，才允许回退到用户级或全局同名 Skill；不得因全局 Skill 同名而跳过工作区版本。',
+          '- 上述路径不存在时，再读取当前工作区 `.claude/skills/<skill>/SKILL.md` 或 `.cursor/skills/<skill>/SKILL.md`。',
+          '- 只有这些工作区路径都不存在时，才允许回退到用户级或全局同名 Skill；不得因全局 Skill 同名而跳过工作区版本。',
           `本次任务必须执行的项目 Skill：${config.skills
             .map((skill) => `$${skill}`)
             .join('、')}`,

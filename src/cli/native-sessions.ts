@@ -48,6 +48,50 @@ function claudeProjectDirectory(configDir: string, cwd: string): string {
   return join(configDir, 'projects', key);
 }
 
+function assistantDeliverableText(row: Record<string, unknown>): string | undefined {
+  if (row.type !== 'assistant' || !isRecord(row.message)) return undefined;
+  if (!Array.isArray(row.message.content)) return undefined;
+  const blocks = row.message.content.filter(isRecord);
+  if (blocks.some((block) => block.type === 'tool_use')) return undefined;
+  const text = blocks
+    .filter((block) => block.type === 'text' && typeof block.text === 'string')
+    .map((block) => block.text)
+    .join('\n')
+    .trim();
+  return text || undefined;
+}
+
+/** stream-json 卡住未发 result 时，从本地会话文件抢救最后一条可交付回答。 */
+export async function readClaudeSessionAnswer(
+  cwd: string,
+  sessionId: string
+): Promise<string | undefined> {
+  const configDir = process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude');
+  const filePath = join(
+    claudeProjectDirectory(configDir, cwd),
+    `${sessionId}.jsonl`
+  );
+  let answer: string | undefined;
+  try {
+    const lines = createInterface({ input: createReadStream(filePath) });
+    for await (const line of lines) {
+      let row: unknown;
+      try {
+        row = JSON.parse(line);
+      } catch {
+        continue;
+      }
+      if (!isRecord(row)) continue;
+      const text = assistantDeliverableText(row);
+      if (text) answer = text;
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+    throw error;
+  }
+  return answer;
+}
+
 async function readClaudeSession(
   filePath: string,
   expectedCwd: string

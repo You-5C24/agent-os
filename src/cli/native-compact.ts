@@ -2,7 +2,7 @@ import { killCli, spawnCli } from './spawn-cli.js';
 import { createInterface } from 'node:readline';
 import type { CliAdapter, CliCompactPlan } from './types.js';
 
-const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
+const DEFAULT_TIMEOUT_MS = Number(process.env.CLI_TIMEOUT_MS) || 10 * 60 * 1000;
 
 export interface CompactCliSessionOptions {
   adapter: CliAdapter;

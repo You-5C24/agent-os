@@ -1,4 +1,5 @@
 import {
+  execFileSync,
   spawn,
   type ChildProcess,
   type ChildProcessByStdio,
@@ -6,7 +7,29 @@ import {
 } from 'node:child_process';
 import type { Readable, Writable } from 'node:stream';
 
-/** 在 Windows 上把子进程连同进程树一起杀掉，避免 cmd 被杀后 claude.exe/cursor.exe/codex.exe 变孤儿继续跑。 */
+function killProcessTree(pid: number, signal: NodeJS.Signals): void {
+  try {
+    const output = execFileSync('pgrep', ['-P', String(pid)], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    for (const line of output.split('\n')) {
+      const childPid = Number(line.trim());
+      if (Number.isInteger(childPid) && childPid > 0) {
+        killProcessTree(childPid, signal);
+      }
+    }
+  } catch {
+    // pgrep 在没有子进程时退出码为 1
+  }
+  try {
+    process.kill(pid, signal);
+  } catch {
+    // 进程可能已经退出
+  }
+}
+
+/** 杀掉 CLI 进程树，避免 http.server 等孙子进程残留。Windows 走 taskkill /t。 */
 export function killCli(
   child: ChildProcess,
   signal: NodeJS.Signals = 'SIGTERM'
@@ -16,7 +39,7 @@ export function killCli(
     return;
   }
   if (process.platform !== 'win32') {
-    child.kill(signal);
+    killProcessTree(child.pid, signal);
     return;
   }
   spawn('taskkill', ['/pid', String(child.pid), '/t', '/f'], {

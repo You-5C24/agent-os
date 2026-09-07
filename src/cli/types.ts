@@ -60,6 +60,7 @@ export type CliEvent =
       toolName: string;
       input: unknown;
     }
+  | { type: 'draft'; answer: string }
   | { type: 'result'; answer: string; sessionId?: string; stats?: CliRunStats }
   | { type: 'error'; message: string; sessionId?: string };
 

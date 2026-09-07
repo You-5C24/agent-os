@@ -3,8 +3,11 @@ import { promptInputForPlatform } from './types.js';
 import { createInterface } from 'node:readline';
 import type { CliAdapter, CliEvent, CliRunResult } from './types.js';
 import { ensureCursorAppTools } from './app-tools.js';
+import { readClaudeSessionAnswer } from './native-sessions.js';
 
-const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
+const DEFAULT_TIMEOUT_MS = Number(process.env.CLI_TIMEOUT_MS) || 10 * 60 * 1000;
+const DEFAULT_IDLE_TIMEOUT_MS =
+  Number(process.env.CLI_IDLE_TIMEOUT_MS) || 2 * 60 * 1000;
 
 export interface RunCliOptions {
   adapter: CliAdapter;
@@ -13,6 +16,7 @@ export interface RunCliOptions {
   sessionId?: string;
   signal?: AbortSignal;
   timeoutMs?: number;
+  idleTimeoutMs?: number;
   onEvent?: (event: CliEvent) => void;
 }
 
@@ -24,6 +28,7 @@ export function runCli(options: RunCliOptions): Promise<CliRunResult> {
     sessionId,
     signal,
     timeoutMs = DEFAULT_TIMEOUT_MS,
+    idleTimeoutMs = DEFAULT_IDLE_TIMEOUT_MS,
     onEvent,
   } = options;
   // Windows 下 prompt 走 stdin（规避 cmd 转义/乱码），其他平台直接作为命令行参数。
@@ -62,25 +67,67 @@ export function runCli(options: RunCliOptions): Promise<CliRunResult> {
     let stderr = '';
     let settled = false;
     let timedOut = false;
+    let idleTimedOut = false;
+    let draftAnswer: string | undefined;
 
     const timer = setTimeout(() => {
       timedOut = true;
       killCli(child);
     }, timeoutMs);
 
-    const finish = () => clearTimeout(timer);
+    // stdout 任意一行都重置；与 CLI_TIMEOUT_MS 独立，专门抓 stream-json 静默挂死。
+    let idleTimer: NodeJS.Timeout | undefined;
+    const resetIdleTimer = () => {
+      if (idleTimer) clearTimeout(idleTimer);
+      idleTimer = setTimeout(() => {
+        idleTimedOut = true;
+        killCli(child);
+      }, idleTimeoutMs);
+    };
+    resetIdleTimer();
+
+    const finish = () => {
+      clearTimeout(timer);
+      if (idleTimer) clearTimeout(idleTimer);
+    };
     const fail = (error: Error) => {
       if (settled) return;
       settled = true;
       finish();
       reject(error);
     };
+    const succeed = (result: CliRunResult) => {
+      if (settled) return;
+      settled = true;
+      finish();
+      resolve(result);
+    };
+
+    const salvageAnswer = async (): Promise<string | undefined> => {
+      const draft = draftAnswer?.trim();
+      if (draft) return draft;
+      if (adapter.id !== 'claude' || !observedSessionId) return undefined;
+      try {
+        return await readClaudeSessionAnswer(cwd, observedSessionId);
+      } catch {
+        return undefined;
+      }
+    };
 
     lines.on('line', (line) => {
+      resetIdleTimer();
       for (const event of adapter.parseEvents(line)) {
         onEvent?.(event);
         if ('sessionId' in event && event.sessionId) {
           observedSessionId = event.sessionId;
+        }
+        if (event.type === 'draft') {
+          draftAnswer = event.answer;
+          continue;
+        }
+        if (event.type === 'tool_start') {
+          draftAnswer = undefined;
+          continue;
         }
         if (event.type === 'error') {
           resultError = new Error(event.message);
@@ -115,6 +162,14 @@ export function runCli(options: RunCliOptions): Promise<CliRunResult> {
         fail(new Error(`${adapter.displayName} 执行超时`));
         return;
       }
+      if (idleTimedOut) {
+        fail(
+          new Error(
+            `${adapter.displayName} 无输出超时（已静默 ${Math.round(idleTimeoutMs / 1000)} 秒）`
+          )
+        );
+        return;
+      }
       if (signal?.aborted) {
         fail(new Error(`${adapter.displayName} 执行已取消`));
         return;
@@ -122,34 +177,65 @@ export function runCli(options: RunCliOptions): Promise<CliRunResult> {
       fail(error);
     });
     child.once('close', (code) => {
-      if (settled) return;
-      if (timedOut) {
-        return fail(new Error(`${adapter.displayName} 执行超时`));
-      }
-      if (signal?.aborted) {
-        return fail(new Error(`${adapter.displayName} 执行已取消`));
-      }
-      if (resultError) return fail(resultError);
-      if (code !== 0) {
-        return fail(
-          new Error(
-            stderr.trim() || `${adapter.displayName} 退出，状态码 ${code}`
-          )
-        );
-      }
-      if (!finalResult) {
-        return fail(new Error(`${adapter.displayName} 没有返回最终结果`));
-      }
-      if (observedToolCalls.size > 0) {
-        finalResult.toolCalls = [...observedToolCalls.values()].map((call) => ({
-          toolUseId: call.toolUseId,
-          toolName: call.toolName,
-          input: call.input,
-        }));
-      }
-      settled = true;
-      finish();
-      resolve(finalResult);
+      void (async () => {
+        if (settled) return;
+        if (signal?.aborted) {
+          return fail(new Error(`${adapter.displayName} 执行已取消`));
+        }
+        if (idleTimedOut) {
+          if (finalResult) {
+            if (observedToolCalls.size > 0) {
+              finalResult.toolCalls = [...observedToolCalls.values()].map(
+                (call) => ({
+                  toolUseId: call.toolUseId,
+                  toolName: call.toolName,
+                  input: call.input,
+                })
+              );
+            }
+            return succeed(finalResult);
+          }
+          const salvaged = await salvageAnswer();
+          if (salvaged) {
+            console.log(
+              `[CLI] ${adapter.id} 无输出超时，已从会话恢复最终回答`
+            );
+            return succeed({
+              answer: salvaged,
+              sessionId: observedSessionId,
+            });
+          }
+          return fail(
+            new Error(
+              `${adapter.displayName} 无输出超时（已静默 ${Math.round(idleTimeoutMs / 1000)} 秒）`
+            )
+          );
+        }
+        if (timedOut) {
+          return fail(new Error(`${adapter.displayName} 执行超时`));
+        }
+        if (resultError) return fail(resultError);
+        if (code !== 0) {
+          return fail(
+            new Error(
+              stderr.trim() || `${adapter.displayName} 退出，状态码 ${code}`
+            )
+          );
+        }
+        if (!finalResult) {
+          return fail(new Error(`${adapter.displayName} 没有返回最终结果`));
+        }
+        if (observedToolCalls.size > 0) {
+          finalResult.toolCalls = [...observedToolCalls.values()].map(
+            (call) => ({
+              toolUseId: call.toolUseId,
+              toolName: call.toolName,
+              input: call.input,
+            })
+          );
+        }
+        succeed(finalResult);
+      })();
     });
   });
 }

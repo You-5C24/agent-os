@@ -8,6 +8,7 @@ import type {
 import {
   CLARIFICATION_TOOL_NAME,
   PRODUCT_SPEC_TOOL_NAME,
+  DISPATCH_TASK_TOOL_NAME,
   cursorAppToolArgs,
 } from './app-tools.js';
 
@@ -295,6 +296,18 @@ export class CursorAdapter implements CliAdapter {
             toolUseId: event.call_id,
             toolName: PRODUCT_SPEC_TOOL_NAME,
             input: productSpec,
+          });
+        }
+        const dispatchTask = appToolInput(
+          event.tool_call,
+          DISPATCH_TASK_TOOL_NAME
+        );
+        if (dispatchTask !== undefined) {
+          events.push({
+            type: 'tool_call',
+            toolUseId: event.call_id,
+            toolName: DISPATCH_TASK_TOOL_NAME,
+            input: dispatchTask,
           });
         }
         return events;

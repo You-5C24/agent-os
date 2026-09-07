@@ -11,19 +11,44 @@ const WorkspaceDocumentPathSchema = z
     '文档路径必须位于当前工作目录内'
   );
 
-export const ProductSpecRequestSchema = z.object({
+const ProductSpecBaseSchema = z.object({
   title: z.string().trim().min(1).max(80),
   summary: z.string().trim().min(1).max(500),
-  specPath: WorkspaceDocumentPathSchema,
-  ticketsPath: WorkspaceDocumentPathSchema,
 });
 
+const LarkDocumentUrlSchema = z
+  .url()
+  .refine(
+    (value) => /\/docx\//.test(new URL(value).pathname),
+    'documentUrl 必须是飞书 Docx 文档链接'
+  );
+
+export const LocalProductSpecRequestSchema = ProductSpecBaseSchema.extend({
+  deliveryMode: z.literal('local'),
+  specPath: WorkspaceDocumentPathSchema,
+  ticketsPath: WorkspaceDocumentPathSchema,
+}).strict();
+
+export const LarkProductSpecRequestSchema = ProductSpecBaseSchema.extend({
+  deliveryMode: z.literal('lark-doc'),
+  documentUrl: LarkDocumentUrlSchema,
+}).strict();
+
+export const ProductSpecRequestSchema = z.discriminatedUnion('deliveryMode', [
+  LocalProductSpecRequestSchema,
+  LarkProductSpecRequestSchema,
+]);
+
 export type ProductSpecRequest = z.infer<typeof ProductSpecRequestSchema>;
+export type LocalProductSpecRequest = z.infer<
+  typeof LocalProductSpecRequestSchema
+>;
 
 export interface ProductSpecFlow {
   token: string;
   taskId: string;
   botId: string;
+  sessionId: string;
   ownerOpenId: string;
   ownerUnionId?: string;
   request: ProductSpecRequest;
@@ -34,6 +59,7 @@ export interface ProductSpecFlow {
 export interface CreateProductSpecFlowOptions {
   taskId: string;
   botId: string;
+  sessionId: string;
   ownerOpenId: string;
   ownerUnionId?: string;
   request: ProductSpecRequest;
@@ -64,6 +90,12 @@ export function isProductSpecOwner(
 export class ProductSpecFlowStore {
   private readonly flows = new Map<string, ProductSpecFlow>();
 
+  constructor(initialFlows: ProductSpecFlow[] = []) {
+    for (const flow of initialFlows) {
+      this.flows.set(flow.token, flow);
+    }
+  }
+
   create(options: CreateProductSpecFlowOptions): ProductSpecFlow {
     for (const flow of this.flows.values()) {
       if (
@@ -87,6 +119,22 @@ export class ProductSpecFlowStore {
     return this.flows.get(token);
   }
 
+  findPendingByDocument(
+    botId: string,
+    fileToken: string
+  ): ProductSpecFlow | undefined {
+    for (const flow of this.flows.values()) {
+      if (
+        flow.botId === botId &&
+        flow.status === 'pending' &&
+        flow.request.deliveryMode === 'lark-doc' &&
+        documentToken(flow.request.documentUrl) === fileToken
+      )
+        return flow;
+    }
+    return undefined;
+  }
+
   approve(token: string): ProductSpecFlow | undefined {
     const flow = this.flows.get(token);
     if (!flow || flow.status !== 'pending') return undefined;
@@ -94,4 +142,22 @@ export class ProductSpecFlowStore {
     flow.approvedAt = new Date().toISOString();
     return flow;
   }
+
+  protected snapshot(): ProductSpecFlow[] {
+    return structuredClone([...this.flows.values()]);
+  }
+
+  protected restore(flows: ProductSpecFlow[]): void {
+    this.flows.clear();
+    for (const flow of flows) {
+      this.flows.set(flow.token, flow);
+    }
+  }
+}
+
+function documentToken(documentUrl: string): string | undefined {
+  const match = /^\/docx\/([A-Za-z0-9_-]+)\/?$/.exec(
+    new URL(documentUrl).pathname
+  );
+  return match?.[1];
 }

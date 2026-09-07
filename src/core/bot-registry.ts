@@ -3,6 +3,10 @@ import { z } from 'zod';
 import { CLI_IDS, type CliId } from '../cli/types.js';
 import { resolveWorkspacePath } from './workspace.js';
 
+const ProductDeliveryModeSchema = z.enum(['local', 'lark-doc']);
+
+export type ProductDeliveryMode = z.infer<typeof ProductDeliveryModeSchema>;
+
 export interface BotConfig {
   id: string;
   appId: string;
@@ -18,6 +22,7 @@ export interface BotConfig {
 
 export interface AgentOsConfig {
   teamLeaderId: string;
+  defaultProductDeliveryMode: ProductDeliveryMode;
   bots: BotConfig[];
 }
 
@@ -56,6 +61,8 @@ const BotSchema = z.object({
 
 const BotConfigFileSchema = z.object({
   teamLeader: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,31}$/),
+  defaultProductDeliveryMode:
+    ProductDeliveryModeSchema.optional().default('lark-doc'),
   bots: z.array(BotSchema).min(1),
 });
 
@@ -113,7 +120,11 @@ export function parseAgentOsConfig(
       throw new Error(`bot ${config.id} 不能把自己配置为 reviewBy`);
     }
   }
-  return { teamLeaderId: parsed.teamLeader, bots: configs };
+  return {
+    teamLeaderId: parsed.teamLeader,
+    defaultProductDeliveryMode: parsed.defaultProductDeliveryMode,
+    bots: configs,
+  };
 }
 
 export function parseBotConfigs(
@@ -159,8 +170,22 @@ export async function loadBotConfigs(
 export function buildBotPrompt(
   config: Pick<BotConfig, 'role' | 'skills' | 'systemPrompt'>,
   prompt: string,
-  teamContext = ''
+  teamContext = '',
+  defaultProductDeliveryMode: ProductDeliveryMode = 'lark-doc'
 ): string {
+  const managesProductDocuments = config.skills.some((skill) =>
+    ['to-spec', 'to-tickets', 'lark-doc'].includes(skill)
+  );
+  const productDeliveryPolicy = managesProductDocuments
+    ? [
+        '产品方案交付规则（必须遵守）：',
+        `- 当前默认交付方式：${defaultProductDeliveryMode}。`,
+        '- 用户明确指定本地 Markdown 或飞书云文档时，以用户本次选择覆盖默认值。',
+        '- 不要为了选择交付格式单独发起澄清。',
+        '- 方案产物完成后必须实际调用 request_spec_approval，并提交最终采用的 deliveryMode 与对应产物字段。',
+        '- 不能只在普通回复中罗列 deliveryMode、documentUrl、specPath 或 ticketsPath。工具调用成功后停止本轮。',
+      ].join('\n')
+    : '';
   const feishuOutputPolicy = [
     '飞书输出规则（必须遵守）：',
     '- 最终回复控制在 1200 个中文字符以内，先给结论，再给必要依据和下一步。',
@@ -172,12 +197,14 @@ export function buildBotPrompt(
     `你的角色：${config.role}`,
     config.systemPrompt.trim(),
     teamContext.trim(),
+    productDeliveryPolicy,
     config.skills.length > 0
       ? [
           '项目 Skill 加载规则（优先级不可颠倒）：',
           '- 对配置中声明的每个 Skill，先读取当前工作区 `.agents/skills/<skill>/SKILL.md`。',
-          '- 上述路径不存在时，再读取当前工作区 `.claude/skills/<skill>/SKILL.md` 或 `.cursor/skills/<skill>/SKILL.md`。',
-          '- 只有这些工作区路径都不存在时，才允许回退到用户级或全局同名 Skill；不得因全局 Skill 同名而跳过工作区版本。',
+          '- 上述路径不存在时，再读取当前工作区 `.claude/skills/<skill>/SKILL.md`。',
+          '- 仍不存在时，再读取当前工作区 `.cursor/skills/<skill>/SKILL.md`。',
+          '- 只有工作区路径都不存在时，才允许回退到用户级或全局同名 Skill；不得因全局 Skill 同名而跳过工作区版本。',
           `本次任务必须执行的项目 Skill：${config.skills
             .map((skill) => `$${skill}`)
             .join('、')}`,

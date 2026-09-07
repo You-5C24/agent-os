@@ -1,6 +1,6 @@
 /**
  * Agent OS 入口。
- * 当前阶段：飞书消息驱动 Claude Code / Cursor 完成任务（Codex 仅作备用）。
+ * 当前阶段：飞书消息驱动 Claude Code / Codex 完成任务。
  */
 import 'dotenv/config';
 import { randomUUID } from 'node:crypto';
@@ -10,6 +10,7 @@ import {
   answerContinuation,
   answerNeedsContinuation,
   buildClarificationCard,
+  buildProductSpecApprovalCard,
   buildClarificationSupersededCard,
   buildCollaborationCard,
   buildSessionNoticeCard,
@@ -28,6 +29,10 @@ import {
   findClarificationRequest,
   formatClarificationMessage,
 } from './core/clarification.js';
+import {
+  findProductSpecRequest,
+  ProductSpecFlowStore,
+} from './core/product-spec.js';
 import { topicTaskId } from './core/topic-task.js';
 import {
   CollaborationInbox,
@@ -47,6 +52,7 @@ import { TeamRegistry } from './core/team-registry.js';
 import { getCliAdapter, listCliAdapters } from './cli/registry.js';
 import { compactCliSession } from './cli/native-compact.js';
 import { createCardActionHandler } from './app/card-action-handler.js';
+import { assertProductSpecDocuments } from './app/product-spec-documents.js';
 import { executeCli } from './app/cli-execution.js';
 import { handleSessionCommand } from './app/command-handler.js';
 import { sendResultNotification } from './app/notification-service.js';
@@ -64,7 +70,7 @@ await Promise.all(
 );
 for (const missing of await teamRegistry.findMissingSkills()) {
   console.warn(
-    `[Skill] bot=${missing.botId} 找不到 ${missing.skill}，请安装到当前工作目录的 .agents/skills、.claude/skills 或 .cursor/skills`
+    `[Skill] bot=${missing.botId} 找不到 ${missing.skill}，请安装到当前工作目录的 .agents/skills 或 .claude/skills`
   );
 }
 const defaultWorkspaces = Object.fromEntries(
@@ -83,6 +89,7 @@ const botRuntimes = new Map<string, BotRuntime>();
 const processedCollaborationTurns = new Set<string>();
 const collaborationInbox = new CollaborationInbox();
 const clarificationFlows = new ClarificationFlowStore();
+const productSpecFlows = new ProductSpecFlowStore();
 const runtime: AppRuntime = {
   sessions,
   teamRegistry,
@@ -92,6 +99,7 @@ const runtime: AppRuntime = {
   processedCollaborationTurns,
   collaborationInbox,
   clarificationFlows,
+  productSpecFlows,
 };
 
 console.log('Agent OS 启动，正在建立飞书长连接…');
@@ -490,6 +498,37 @@ async function startConfiguredBot(config: BotConfig): Promise<void> {
             console.log(
               `[澄清] 已发送交互卡片 questions=${clarificationRequest.questions.length}`
             );
+            return;
+          }
+          const productSpecRequest =
+            !isCompacting && config.skills.includes('to-spec')
+              ? findProductSpecRequest(result.toolCalls)
+              : undefined;
+          if (productSpecRequest) {
+            await assertProductSpecDocuments(
+              session.workspaceDir,
+              productSpecRequest
+            );
+            if (activeRuns.get(session.id)?.controller === run) {
+              activeRuns.delete(session.id);
+            }
+            await markSessionIdle(sessions, session.id);
+            const flow = productSpecFlows.create({
+              taskId,
+              botId: config.id,
+              ownerOpenId: msg.senderOpenId,
+              ownerUnionId: msg.senderUnionId,
+              request: productSpecRequest,
+            });
+            await cardUpdater.finish(buildProductSpecApprovalCard(flow));
+            await sendResultNotification({
+              bot,
+              replyToMessageId: msg.messageId,
+              target: { openId: msg.senderOpenId, name: '' },
+              text: 'Spec 和 Tickets 已经落盘，请查看上方产物卡片。',
+              replyInThread: hasThread,
+            });
+            console.log('[产品文档] 已展示待确认产物');
             return;
           }
           const snapshot = progress.snapshot();

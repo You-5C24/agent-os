@@ -1,8 +1,9 @@
 /**
  * Agent OS 入口。
- * 当前阶段：飞书消息驱动 Claude Code / Cursor 完成任务（Codex 仅作备用）。
+ * 当前阶段：飞书消息驱动 Claude Code / Codex 完成任务。
  */
 import 'dotenv/config';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { startBot, type Bot, type IncomingDocumentComment } from './im/lark.js';
 import {
@@ -115,6 +116,20 @@ const runtime: AppRuntime = {
   clarificationFlows,
   productSpecFlows,
 };
+function persistBotIdentities(): void {
+  const identities = Object.fromEntries(
+    [...botRuntimes.entries()].map(([id, run]) => [
+      id,
+      { openId: run.identity.openId, name: run.identity.name },
+    ])
+  );
+  mkdirSync(join('data'), { recursive: true });
+  writeFileSync(
+    join('data', 'bot-identities.json'),
+    `${JSON.stringify(identities, null, 2)}\n`,
+    'utf8'
+  );
+}
 const collaborationService = new CollaborationService(runtime);
 const scheduleFilePath = join('data', 'schedules.json');
 const scheduleStore = new JsonScheduleStore(scheduleFilePath);
@@ -177,24 +192,40 @@ async function startConfiguredBot(
             ? collaborationInbox.consume(dispatchId, config.id)
             : undefined;
         if (!pending) {
-          console.log(
-            `[协作] 忽略非目标 bot 消息 sender=${msg.senderOpenId} target=${config.id}`
-          );
-          return;
+          if (mentionedCurrentBot) {
+            console.log(
+              `[协作] bot 消息 @ 当前 bot，按外部派活处理 sender=${msg.senderOpenId} target=${config.id}`
+            );
+          } else {
+            console.log(
+              `[协作] 忽略非目标 bot 消息 sender=${msg.senderOpenId} target=${config.id}`
+            );
+            return;
+          }
+        } else {
+          senderRuntime = botRuntimes.get(pending.fromBotId);
+          if (!senderRuntime) {
+            console.log(`[协作] 找不到来源 bot: ${pending.fromBotId}`);
+            return;
+          }
+          const turnKey = collaborationTurnKey(pending);
+          if (processedCollaborationTurns.has(turnKey)) {
+            console.log(`[协作] 忽略重复消息 ${turnKey}`);
+            return;
+          }
+          processedCollaborationTurns.add(turnKey);
+          collaboration = pending;
         }
-        senderRuntime = botRuntimes.get(pending.fromBotId);
-        if (!senderRuntime) {
-          console.log(`[协作] 找不到来源 bot: ${pending.fromBotId}`);
-          return;
-        }
-        const turnKey = collaborationTurnKey(pending);
-        if (processedCollaborationTurns.has(turnKey)) {
-          console.log(`[协作] 忽略重复消息 ${turnKey}`);
-          return;
-        }
-        processedCollaborationTurns.add(turnKey);
-        collaboration = pending;
       }
+      const botSender = msg.senderType === 'app' || msg.senderType === 'bot';
+      const ownerOpenId =
+        collaboration?.ownerOpenId ??
+        (botSender
+          ? process.env.OWNER_OPEN_ID ?? msg.senderOpenId
+          : msg.senderOpenId);
+      const ownerUnionId =
+        collaboration?.ownerUnionId ??
+        (botSender ? undefined : msg.senderUnionId);
       const hasThread = !!msg.threadId || !!msg.rootId;
       const command = parseCommand(resolved);
       const cliRequest = parseCliRequest(resolved);
@@ -337,7 +368,7 @@ async function startConfiguredBot(
       const run = new AbortController();
       const activeRun: ActiveRun = {
         controller: run,
-        ownerOpenId: collaboration?.ownerOpenId ?? msg.senderOpenId,
+        ownerOpenId,
       };
       activeRuns.set(session.id, activeRun);
 
@@ -472,8 +503,8 @@ async function startConfiguredBot(
               taskId,
               botId: config.id,
               sessionId: session.id,
-              ownerOpenId: collaboration?.ownerOpenId ?? msg.senderOpenId,
-              ownerUnionId: collaboration?.ownerUnionId ?? msg.senderUnionId,
+              ownerOpenId,
+              ownerUnionId,
               collaboration: collaboration
                 ? collaborationOrigin(collaboration)
                 : undefined,
@@ -588,8 +619,8 @@ async function startConfiguredBot(
               taskId,
               botId: config.id,
               sessionId: session.id,
-              ownerOpenId: collaboration?.ownerOpenId ?? msg.senderOpenId,
-              ownerUnionId: collaboration?.ownerUnionId ?? msg.senderUnionId,
+              ownerOpenId,
+              ownerUnionId,
               collaboration: collaboration
                 ? collaborationOrigin(collaboration)
                 : undefined,
@@ -600,7 +631,7 @@ async function startConfiguredBot(
               bot,
               replyToMessageId: msg.messageId,
               target: {
-                openId: collaboration?.ownerOpenId ?? msg.senderOpenId,
+                openId: ownerOpenId,
                 name: '',
               },
               text: '产品方案已生成，请查看上方确认卡。',
@@ -647,7 +678,7 @@ async function startConfiguredBot(
             await sendResultNotification({
               bot,
               replyToMessageId: msg.messageId,
-              target: { openId: msg.senderOpenId, name: '' },
+              target: { openId: ownerOpenId, name: '' },
               text: isCompacting
                 ? '上下文整理已完成，请查看上方结果。'
                 : '任务已完成，请查看上方结果。',
@@ -663,9 +694,8 @@ async function startConfiguredBot(
                   replyToMessageId: msg.messageId,
                   targetBotId: dispatchRequest.targetBotId,
                   taskId,
-                  ownerOpenId: collaboration?.ownerOpenId ?? msg.senderOpenId,
-                  ownerUnionId:
-                    collaboration?.ownerUnionId ?? msg.senderUnionId,
+                  ownerOpenId,
+                  ownerUnionId,
                   reportToBotId: collaboration?.reportToBotId ?? config.id,
                   objective: dispatchRequest.objective,
                   instruction: dispatchRequest.instruction,
@@ -682,7 +712,7 @@ async function startConfiguredBot(
                   await sendResultNotification({
                     bot,
                     replyToMessageId: msg.messageId,
-                    target: { openId: msg.senderOpenId, name: '' },
+                    target: { openId: ownerOpenId, name: '' },
                     text: `任务已交给 ${targetName}，请查看上方协作消息。`,
                     replyInThread: hasThread,
                   });
@@ -762,7 +792,7 @@ async function startConfiguredBot(
               bot,
               replyToMessageId: msg.messageId,
               target: senderRuntime?.identity ?? {
-                openId: msg.senderOpenId,
+                openId: ownerOpenId,
                 name: '',
               },
               text: '任务已停止，请查看上方状态。',
@@ -787,7 +817,7 @@ async function startConfiguredBot(
             bot,
             replyToMessageId: msg.messageId,
             target: senderRuntime?.identity ?? {
-              openId: msg.senderOpenId,
+              openId: ownerOpenId,
               name: '',
             },
             text: '任务执行失败，请查看上方错误信息。',
@@ -813,6 +843,7 @@ async function startConfiguredBot(
   const identity = await startedBot.getIdentity();
   const botRuntime = { config, bot: startedBot, identity };
   botRuntimes.set(config.id, botRuntime);
+  persistBotIdentities();
   if (config.skills.includes('lark-drive')) {
     await startedBot.subscribeToDocumentComments();
   }

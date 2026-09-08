@@ -15,6 +15,21 @@ import type { ScheduledRun } from '../core/schedule-run-store.js';
 export type CardJson = Record<string, unknown>;
 export type TaskStatus = 'running' | 'success' | 'failed' | 'cancelled';
 
+function formatScheduleTime(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat('zh-CN', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).format(date);
+}
+
 export interface TaskCardOptions {
   title: string;
   status: TaskStatus;
@@ -904,7 +919,9 @@ export function buildScheduleCreatedCard(task: ScheduledTask): CardJson {
               task.rule
             )} · ${escapeFeishuMarkdown(scheduleDescription(task.rule))}`,
             task.nextRunAt
-              ? `**下一次执行** ${escapeFeishuMarkdown(task.nextRunAt)}`
+              ? `**下一次执行** ${escapeFeishuMarkdown(
+                  formatScheduleTime(task.nextRunAt)
+                )} (Asia/Shanghai)`
               : '',
           ]
             .filter(Boolean)
@@ -925,6 +942,11 @@ export function buildScheduleListCard(tasks: ScheduledTask[]): CardJson {
             `${scheduleKindLabel(task.rule)} · ${escapeFeishuMarkdown(
               scheduleDescription(task.rule)
             )} · 交给 ${task.targetBotId}`,
+            task.nextRunAt
+              ? `下一次执行 ${escapeFeishuMarkdown(
+                  formatScheduleTime(task.nextRunAt)
+                )} (Asia/Shanghai)`
+              : '下一次执行 未计算',
           ].join('\n')
         )
         .join('\n\n')

@@ -7,6 +7,8 @@
     "dev": "pnpm start",
     "start": "tsx watch --include .env --include \"config/*.json\" src/index.ts",
     "start:once": "tsx src/index.ts",
+    "demo:server": "pnpm --filter agent-os-demo-server start",
+    "demo:traffic": "pnpm --filter agent-os-demo-server traffic",
     "probe": "tsx src/probe-lark.ts",
     "build": "tsc",
     "probe:cli": "tsx src/probe-cli.ts",

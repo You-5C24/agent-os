@@ -17,6 +17,7 @@ export interface RunCliOptions {
   signal?: AbortSignal;
   timeoutMs?: number;
   idleTimeoutMs?: number;
+  env?: Record<string, string>;
   onEvent?: (event: CliEvent) => void;
 }
 
@@ -29,6 +30,7 @@ export function runCli(options: RunCliOptions): Promise<CliRunResult> {
     signal,
     timeoutMs = DEFAULT_TIMEOUT_MS,
     idleTimeoutMs = DEFAULT_IDLE_TIMEOUT_MS,
+    env,
     onEvent,
   } = options;
   // Windows 下 prompt 走 stdin（规避 cmd 转义/乱码），其他平台直接作为命令行参数。
@@ -44,6 +46,7 @@ export function runCli(options: RunCliOptions): Promise<CliRunResult> {
     const child = spawnCli(adapter.command, args, {
       cwd,
       signal,
+      env: env ? { ...process.env, ...env } : undefined,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
     // stdin 模式下把 prompt 写入子进程；否则 prompt 已在命令行参数里，stdin 直接收口。
@@ -165,7 +168,9 @@ export function runCli(options: RunCliOptions): Promise<CliRunResult> {
       if (idleTimedOut) {
         fail(
           new Error(
-            `${adapter.displayName} 无输出超时（已静默 ${Math.round(idleTimeoutMs / 1000)} 秒）`
+            `${adapter.displayName} 无输出超时（已静默 ${Math.round(
+              idleTimeoutMs / 1000
+            )} 秒）`
           )
         );
         return;
@@ -197,9 +202,7 @@ export function runCli(options: RunCliOptions): Promise<CliRunResult> {
           }
           const salvaged = await salvageAnswer();
           if (salvaged) {
-            console.log(
-              `[CLI] ${adapter.id} 无输出超时，已从会话恢复最终回答`
-            );
+            console.log(`[CLI] ${adapter.id} 无输出超时，已从会话恢复最终回答`);
             return succeed({
               answer: salvaged,
               sessionId: observedSessionId,
@@ -207,7 +210,9 @@ export function runCli(options: RunCliOptions): Promise<CliRunResult> {
           }
           return fail(
             new Error(
-              `${adapter.displayName} 无输出超时（已静默 ${Math.round(idleTimeoutMs / 1000)} 秒）`
+              `${adapter.displayName} 无输出超时（已静默 ${Math.round(
+                idleTimeoutMs / 1000
+              )} 秒）`
             )
           );
         }

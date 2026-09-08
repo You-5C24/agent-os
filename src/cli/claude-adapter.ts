@@ -9,8 +9,10 @@ import {
   CLAUDE_CLARIFICATION_TOOL_NAME,
   CLAUDE_PRODUCT_SPEC_TOOL_NAME,
   CLAUDE_DISPATCH_TASK_TOOL_NAME,
+  CLAUDE_SCHEDULE_MANAGE_TOOL_NAME,
   PRODUCT_SPEC_TOOL_NAME,
   DISPATCH_TASK_TOOL_NAME,
+  SCHEDULE_MANAGE_TOOL_NAME,
   claudeAppToolArgs,
 } from './app-tools.js';
 
@@ -32,7 +34,6 @@ interface ClaudeContentBlock {
   id?: unknown;
   name?: unknown;
   input?: unknown;
-  text?: unknown;
   tool_use_id?: unknown;
   is_error?: unknown;
 }
@@ -202,59 +203,60 @@ export class ClaudeAdapter implements CliAdapter {
       const usedTokens = usageTokens(message.usage);
       const contextEvent: CliEvent[] =
         usedTokens === undefined ? [] : [{ type: 'context', usedTokens }];
-      const blocks = messageBlocks(event.message);
-      const draftText = blocks
-        .filter((block) => block.type === 'text')
-        .map((block) => (typeof block.text === 'string' ? block.text : ''))
-        .join('\n')
-        .trim();
-      const draftEvent: CliEvent[] = draftText
-        ? [{ type: 'draft', answer: draftText }]
-        : [];
-      const toolEvents = blocks.flatMap((block): CliEvent[] => {
-        if (
-          block.type !== 'tool_use' ||
-          typeof block.id !== 'string' ||
-          typeof block.name !== 'string'
-        )
-          return [];
-        const detail = toolDetail(block.name, block.input);
-        const events: CliEvent[] = [
-          {
-            type: 'tool_start',
-            toolUseId: block.id,
-            toolName: block.name,
-            label: TOOL_LABELS[block.name] ?? `调用 ${block.name}`,
-            ...(detail ? { detail } : {}),
-          },
-        ];
-        if (block.name === CLAUDE_CLARIFICATION_TOOL_NAME) {
-          events.push({
-            type: 'tool_call',
-            toolUseId: block.id,
-            toolName: 'request_clarification',
-            input: block.input,
-          });
+      const toolEvents = messageBlocks(event.message).flatMap(
+        (block): CliEvent[] => {
+          if (
+            block.type !== 'tool_use' ||
+            typeof block.id !== 'string' ||
+            typeof block.name !== 'string'
+          )
+            return [];
+          const detail = toolDetail(block.name, block.input);
+          const events: CliEvent[] = [
+            {
+              type: 'tool_start',
+              toolUseId: block.id,
+              toolName: block.name,
+              label: TOOL_LABELS[block.name] ?? `调用 ${block.name}`,
+              ...(detail ? { detail } : {}),
+            },
+          ];
+          if (block.name === CLAUDE_CLARIFICATION_TOOL_NAME) {
+            events.push({
+              type: 'tool_call',
+              toolUseId: block.id,
+              toolName: 'request_clarification',
+              input: block.input,
+            });
+          }
+          if (block.name === CLAUDE_PRODUCT_SPEC_TOOL_NAME) {
+            events.push({
+              type: 'tool_call',
+              toolUseId: block.id,
+              toolName: PRODUCT_SPEC_TOOL_NAME,
+              input: block.input,
+            });
+          }
+          if (block.name === CLAUDE_DISPATCH_TASK_TOOL_NAME) {
+            events.push({
+              type: 'tool_call',
+              toolUseId: block.id,
+              toolName: DISPATCH_TASK_TOOL_NAME,
+              input: block.input,
+            });
+          }
+          if (block.name === CLAUDE_SCHEDULE_MANAGE_TOOL_NAME) {
+            events.push({
+              type: 'tool_call',
+              toolUseId: block.id,
+              toolName: SCHEDULE_MANAGE_TOOL_NAME,
+              input: block.input,
+            });
+          }
+          return events;
         }
-        if (block.name === CLAUDE_PRODUCT_SPEC_TOOL_NAME) {
-          events.push({
-            type: 'tool_call',
-            toolUseId: block.id,
-            toolName: PRODUCT_SPEC_TOOL_NAME,
-            input: block.input,
-          });
-        }
-        if (block.name === CLAUDE_DISPATCH_TASK_TOOL_NAME) {
-          events.push({
-            type: 'tool_call',
-            toolUseId: block.id,
-            toolName: DISPATCH_TASK_TOOL_NAME,
-            input: block.input,
-          });
-        }
-        return events;
-      });
-      return [...contextEvent, ...draftEvent, ...toolEvents];
+      );
+      return [...contextEvent, ...toolEvents];
     }
     if (event.type === 'user') {
       return messageBlocks(event.message).flatMap((block): CliEvent[] => {

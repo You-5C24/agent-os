@@ -1,6 +1,6 @@
 /**
  * Agent OS 入口。
- * 当前阶段：飞书消息驱动 Claude Code / Codex 完成任务。
+ * 当前阶段：飞书消息驱动 Claude Code / Cursor 完成任务（Codex 仅作备用）。
  */
 import 'dotenv/config';
 import { join, resolve } from 'node:path';
@@ -13,6 +13,8 @@ import {
   buildClarificationSupersededCard,
   buildSessionNoticeCard,
   buildTaskCard,
+  buildScheduleCreatedCard,
+  buildScheduleListCard,
   splitLongText,
   ThrottledCardUpdater,
 } from './im/card.js';
@@ -29,6 +31,8 @@ import {
 } from './core/clarification.js';
 import type { ProductSpecRequest } from './core/product-spec.js';
 import { JsonProductSpecFlowStore } from './core/product-spec-store.js';
+import { JsonScheduleStore } from './core/schedule-store.js';
+import { JsonScheduleRunStore } from './core/schedule-run-store.js';
 import { topicTaskId } from './core/topic-task.js';
 import {
   CollaborationInbox,
@@ -59,6 +63,9 @@ import { markSessionIdle } from './app/session-view.js';
 import { runProductDocumentComment } from './app/product-comment-runner.js';
 import { ensureProductSpecSubmission } from './app/product-spec-submission.js';
 import { CollaborationService } from './app/collaboration-service.js';
+import { Scheduler } from './app/scheduler.js';
+import { startScheduleApi } from './app/schedule-api.js';
+import { startScheduleFileWatcher } from './app/schedule-watcher.js';
 import type { AppRuntime, BotRuntime } from './app/runtime.js';
 
 const botConfigPath = resolve(
@@ -109,6 +116,17 @@ const runtime: AppRuntime = {
   productSpecFlows,
 };
 const collaborationService = new CollaborationService(runtime);
+const scheduleFilePath = join('data', 'schedules.json');
+const scheduleStore = new JsonScheduleStore(scheduleFilePath);
+const scheduleRunStore = new JsonScheduleRunStore(
+  join('data', 'schedule-runs.json')
+);
+const scheduler = new Scheduler({
+  runtime,
+  scheduleStore,
+  runStore: scheduleRunStore,
+  defaultProductDeliveryMode: agentOsConfig.defaultProductDeliveryMode,
+});
 
 console.log('Agent OS 启动，正在建立飞书长连接…');
 console.log(
@@ -205,7 +223,7 @@ async function startConfiguredBot(
       }
       const cliAdapter = getCliAdapter(session.cliId);
       const isCompacting = command?.name === 'compact';
-      const taskText = pendingClarification
+      let taskText = pendingClarification
         ? formatClarificationMessage(
             pendingClarification,
             cliRequest?.prompt ?? resolved
@@ -213,6 +231,13 @@ async function startConfiguredBot(
         : collaboration
         ? buildCollaborationPrompt(collaboration)
         : cliRequest?.prompt ?? resolved;
+      if (command?.name === 'schedule' && command.request) {
+        taskText = [
+          '用户想创建一个定时任务。',
+          `需求：${command.request}`,
+          '请使用 schedule_manage 工具，action=add 创建：targetBotId 选择团队中合适的成员，prompt 保留完整需求，rule 根据需求选择合适的调度规则。',
+        ].join('\n\n');
+      }
       const prompt = buildBotPrompt(
         config,
         taskText,
@@ -242,6 +267,7 @@ async function startConfiguredBot(
 
       const commandOutcome = await handleSessionCommand({
         runtime,
+        scheduler,
         config,
         msg,
         bot,
@@ -390,6 +416,11 @@ async function startConfiguredBot(
       const progressHeartbeat = setInterval(renderProgress, 1_000);
       progressHeartbeat.unref();
 
+      const cliEnv = {
+        AGENT_OS_CHAT_ID: msg.chatId,
+        AGENT_OS_OWNER_OPEN_ID: collaboration?.ownerOpenId ?? msg.senderOpenId,
+      };
+
       // 让事件回调尽快返回，CLI 在后台继续执行。
       const execution = isCompacting
         ? compactCliSession({
@@ -414,13 +445,13 @@ async function startConfiguredBot(
               if (
                 event.type !== 'tool_start' &&
                 event.type !== 'tool_end' &&
-                event.type !== 'context' &&
-                event.type !== 'draft'
+                event.type !== 'context'
               )
                 return;
               progress.accept(event);
               renderProgress();
-            }
+            },
+            cliEnv
           );
 
       void execution
@@ -489,13 +520,13 @@ async function startConfiguredBot(
                     if (
                       event.type !== 'tool_start' &&
                       event.type !== 'tool_end' &&
-                      event.type !== 'context' &&
-                      event.type !== 'draft'
+                      event.type !== 'context'
                     )
                       return;
                     progress.accept(event);
                     renderProgress();
-                  }
+                  },
+                  cliEnv
                 ),
             });
             finalResult = submission.result;
@@ -883,3 +914,13 @@ function rememberDocumentCommentEvent(eventKey: string): void {
 await Promise.all(
   botConfigs.map((config) => startConfiguredBot(config, collaborationService))
 );
+
+await scheduler.start();
+startScheduleFileWatcher({ scheduler, filePath: scheduleFilePath });
+startScheduleApi({
+  scheduler,
+  scheduleStore,
+  runStore: scheduleRunStore,
+  port: Number(process.env.SCHEDULE_API_PORT ?? 3101),
+  token: process.env.SCHEDULE_API_TOKEN,
+});

@@ -38,6 +38,7 @@ export async function runProductDocumentComment(options: {
       session.workspaceDir,
       session.cliSessionId,
       run.signal,
+      [], // 文档评论不拦截工具
       () => undefined
     );
     if (result.sessionId) {

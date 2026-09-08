@@ -81,6 +81,7 @@ export async function continueClarificationFlow(options: {
       session.workspaceDir,
       session.cliSessionId,
       run.signal,
+      [], // 澄清续跑不拦截工具，让 CLI 把工具跑完
       (event) => {
         if (
           event.type !== 'tool_start' &&
@@ -141,6 +142,7 @@ export async function continueClarificationFlow(options: {
             session.workspaceDir,
             resultSessionId ?? session.cliSessionId,
             run.signal,
+            [], // 产品方案补交不拦截工具
             (event) => {
               if (
                 event.type !== 'tool_start' &&

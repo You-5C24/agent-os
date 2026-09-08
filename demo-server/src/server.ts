@@ -54,6 +54,21 @@ const server = createServer(async (req, res) => {
       return;
     }
 
+    if (method === 'POST' && pathname === '/__restart') {
+      faults.reset();
+      respond(res, 200, { status: 'restarted', mode: faults.get() });
+      logger.write({
+        level: 'info',
+        message: '服务重启完成，故障模式已重置',
+        requestId,
+        method,
+        path: pathname,
+        statusCode: 200,
+        durationMs: Date.now() - startedAt,
+      });
+      return;
+    }
+
     if (method === 'GET' && pathname === '/health') {
       respond(res, 200, { status: 'ok' });
       logger.write({

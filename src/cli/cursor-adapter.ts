@@ -9,6 +9,7 @@ import {
   CLARIFICATION_TOOL_NAME,
   PRODUCT_SPEC_TOOL_NAME,
   DISPATCH_TASK_TOOL_NAME,
+  REQUEST_APPROVAL_TOOL_NAME,
   SCHEDULE_MANAGE_TOOL_NAME,
   cursorAppToolArgs,
 } from './app-tools.js';
@@ -309,6 +310,18 @@ export class CursorAdapter implements CliAdapter {
             toolUseId: event.call_id,
             toolName: DISPATCH_TASK_TOOL_NAME,
             input: dispatchTask,
+          });
+        }
+        const requestApproval = appToolInput(
+          event.tool_call,
+          REQUEST_APPROVAL_TOOL_NAME
+        );
+        if (requestApproval !== undefined) {
+          events.push({
+            type: 'tool_call',
+            toolUseId: event.call_id,
+            toolName: REQUEST_APPROVAL_TOOL_NAME,
+            input: requestApproval,
           });
         }
         const scheduleManage = appToolInput(

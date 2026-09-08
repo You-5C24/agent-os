@@ -11,6 +11,7 @@ import type {
 import type { ScheduledTask } from '../core/schedule.js';
 import { scheduleDescription, scheduleKindLabel } from '../core/schedule.js';
 import type { ScheduledRun } from '../core/schedule-run-store.js';
+import type { ApprovalFlow } from '../core/approval.js';
 
 export type CardJson = Record<string, unknown>;
 export type TaskStatus = 'running' | 'success' | 'failed' | 'cancelled';
@@ -1194,6 +1195,187 @@ export function buildProductSpecExpiredCard(flow: ProductSpecFlow): CardJson {
           content: [
             `**${escapeFeishuMarkdown(flow.request.title)}**`,
             '同一任务已经提交了更新的产品方案，请查看话题中最新的确认卡。',
+          ].join('\n\n'),
+        },
+      ],
+    },
+  };
+}
+
+function approvalButton(
+  flow: ApprovalFlow,
+  decision: 'approve' | 'reject',
+  label: string,
+  type: 'primary_filled' | 'danger',
+  description: string
+): Record<string, unknown> {
+  return {
+    tag: 'button',
+    text: {
+      tag: 'plain_text',
+      content: `${label} · ${description}`,
+    },
+    type,
+    width: 'default',
+    size: 'medium',
+    behaviors: [
+      {
+        type: 'callback',
+        value: {
+          action: 'decide_approval',
+          flowToken: flow.token,
+          decision,
+        },
+      },
+    ],
+  };
+}
+
+export function buildApprovalCard(flow: ApprovalFlow): CardJson {
+  return {
+    schema: '2.0',
+    config: {
+      update_multi: true,
+      summary: { content: `高危操作审批：${flow.request.operation}` },
+    },
+    header: {
+      template: 'orange',
+      title: { tag: 'plain_text', content: '高危操作审批' },
+      subtitle: {
+        tag: 'plain_text',
+        content: '需要你拍板才能继续',
+      },
+    },
+    body: {
+      direction: 'vertical',
+      vertical_spacing: '12px',
+      elements: [
+        {
+          tag: 'markdown',
+          content: [
+            `**${escapeFeishuMarkdown(flow.request.operation)}**`,
+            escapeFeishuMarkdown(flow.request.detail),
+          ].join('\n\n'),
+        },
+        { tag: 'hr' },
+        {
+          tag: 'markdown',
+          content: [
+            `**影响范围**\n${escapeFeishuMarkdown(flow.request.impact)}`,
+            `**回滚方式**\n${escapeFeishuMarkdown(flow.request.rollback)}`,
+            `**处理截止** ${escapeFeishuMarkdown(
+              formatScheduleTime(flow.expiresAt)
+            )}，超时自动拒绝`,
+          ].join('\n\n'),
+        },
+        { tag: 'hr' },
+        {
+          tag: 'column_set',
+          flex_mode: 'none',
+          background_style: 'default',
+          horizontal_spacing: '8px',
+          columns: [
+            {
+              tag: 'column',
+              width: 'weighted',
+              weight: 1,
+              vertical_align: 'top',
+              elements: [
+                approvalButton(
+                  flow,
+                  'approve',
+                  '放行',
+                  'primary_filled',
+                  '继续执行'
+                ),
+              ],
+            },
+            {
+              tag: 'column',
+              width: 'weighted',
+              weight: 1,
+              vertical_align: 'top',
+              elements: [
+                approvalButton(flow, 'reject', '拒绝', 'danger', '停止操作'),
+              ],
+            },
+          ],
+        },
+        {
+          tag: 'markdown',
+          content:
+            '_放行后开发者会继续执行已批准的操作；拒绝或超时都会让开发者停手并汇报。_',
+        },
+      ],
+    },
+  };
+}
+
+export function buildApprovalDecidedCard(flow: ApprovalFlow): CardJson {
+  const approved = flow.status === 'approved';
+  const expired = flow.status === 'expired';
+  return {
+    schema: '2.0',
+    config: {
+      update_multi: true,
+      summary: { content: `高危操作审批：${flow.status}` },
+    },
+    header: {
+      template: approved ? 'green' : 'red',
+      title: {
+        tag: 'plain_text',
+        content: approved
+          ? '操作已放行'
+          : expired
+          ? '审批已超时'
+          : '操作已拒绝',
+      },
+    },
+    body: {
+      direction: 'vertical',
+      vertical_spacing: '12px',
+      elements: [
+        {
+          tag: 'markdown',
+          content: [
+            `**操作**\n${escapeFeishuMarkdown(flow.request.operation)}`,
+            flow.decidedAt
+              ? `处理时间：${escapeFeishuMarkdown(flow.decidedAt)}`
+              : '',
+            approved
+              ? '_已通知开发者继续执行。_'
+              : '_已通知开发者停止该操作。_',
+          ]
+            .filter(Boolean)
+            .join('\n\n'),
+        },
+      ],
+    },
+  };
+}
+
+export function buildApprovalContinuingCard(flow: ApprovalFlow): CardJson {
+  return {
+    schema: '2.0',
+    config: {
+      update_multi: true,
+      summary: { content: '审批结果已收到' },
+    },
+    header: {
+      template: 'blue',
+      title: { tag: 'plain_text', content: '审批结果已收到' },
+    },
+    body: {
+      direction: 'vertical',
+      vertical_spacing: '12px',
+      elements: [
+        {
+          tag: 'markdown',
+          content: [
+            '**正在恢复开发者会话**',
+            flow.status === 'approved'
+              ? '审批通过，开发者会继续执行已批准的操作。'
+              : '审批未通过，开发者会停止该操作并汇报结果。',
           ].join('\n\n'),
         },
       ],

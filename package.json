@@ -7,6 +7,8 @@
     "dev": "pnpm start",
     "start": "tsx watch --include .env --include \"config/*.json\" src/index.ts",
     "start:once": "tsx src/index.ts",
+    "start:prod": "node dist/index.js",
+    "agent-os": "tsx src/deploy-cli.ts",
     "demo:server": "pnpm --filter agent-os-demo-server start",
     "demo:traffic": "pnpm --filter agent-os-demo-server traffic",
     "probe": "tsx src/probe-lark.ts",
@@ -20,6 +22,7 @@
   "dependencies": {
     "@larksuiteoapi/node-sdk": "^1.71.1",
     "@modelcontextprotocol/sdk": "^1.29.0",
+    "cac": "^6.7.14",
     "croner": "^10.0.1",
     "dotenv": "^17.4.2",
     "zod": "^4.4.3"
